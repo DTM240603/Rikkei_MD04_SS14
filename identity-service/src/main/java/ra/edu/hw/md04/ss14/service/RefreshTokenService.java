@@ -10,21 +10,17 @@ import org.springframework.web.server.ResponseStatusException;
 import ra.edu.hw.md04.ss14.entity.RefreshToken;
 import ra.edu.hw.md04.ss14.entity.User;
 import ra.edu.hw.md04.ss14.repository.RefreshTokenRepository;
-import ra.edu.hw.md04.ss14.repository.UserRepository;
 
 @Service
 public class RefreshTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
-    private final UserRepository userRepository;
     private final long refreshTokenExpiration;
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
-            UserRepository userRepository,
             @Value("${app.jwt.refresh-token-expiration}") long refreshTokenExpiration
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
-        this.userRepository = userRepository;
         this.refreshTokenExpiration = refreshTokenExpiration;
     }
 
@@ -41,9 +37,9 @@ public class RefreshTokenService {
     @Transactional
     public RefreshToken verifyExpiration(String token) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Refresh token is invalid or already used"));
         if (!refreshToken.getExpiryDate().isAfter(Instant.now())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token expired");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Refresh token expired");
         }
         return refreshToken;
     }
@@ -52,8 +48,10 @@ public class RefreshTokenService {
     public RefreshToken rotate(String token) {
         RefreshToken currentToken = verifyExpiration(token);
         User user = currentToken.getUser();
-        refreshTokenRepository.delete(currentToken);
-        userRepository.flush();
+        int consumed = refreshTokenRepository.consumeValidToken(token, Instant.now());
+        if (consumed != 1) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Refresh token is invalid or already used");
+        }
         return createRefreshToken(user);
     }
 
